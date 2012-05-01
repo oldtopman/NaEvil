@@ -2,6 +2,7 @@
 *.d
 *.a
 *.pyc
+*~
 .hgignore
 VERSION
 ndata
