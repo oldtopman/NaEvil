@@ -88,6 +88,7 @@ static int ndata_openPackfile (void);
 static int ndata_isndata( const char *path, ... );
 static void ndata_notfound (void);
 static char** ndata_listBackend( const char* path, uint32_t* nfiles, int dirs );
+static char **stripPath( const char **list, int nlist, const char *path );
 static char** filterList( const char** list, int nlist,
       const char* path, uint32_t* nfiles, int recursive );
 
@@ -116,12 +117,18 @@ int ndata_check( const char* path )
  */
 int ndata_setPath( const char* path )
 {
+   int len;
+
    free(ndata_filename);
    free(ndata_dirname);
    if (path == NULL)
       return 0;
-   else if (nfile_dirExists(path))
+   else if (nfile_dirExists(path)) {
+      len = strlen(path);
       ndata_dirname = strdup(path);
+      if (ndata_dirname[len - 1] == '/')
+         ndata_dirname[len - 1] = '\0';
+   }
    else if (nfile_fileExists(path)) {
       char *tmp = strdup(path);
       ndata_filename = strdup(path);
@@ -503,9 +510,9 @@ const char* ndata_getDirname(void)
       case NDATA_SRC_DIRNAME:
          return ndata_dirname;
       case NDATA_SRC_NDATADEF:
-         return nfile_dirname( NDATA_DEF );
+         return nfile_dirname( strdup( NDATA_DEF ) );
       case NDATA_SRC_BINARY:
-         return nfile_dirname( naev_binary() );
+         return nfile_dirname( strdup( naev_binary() ) );
    }
 
    return NULL;
@@ -681,6 +688,42 @@ SDL_RWops *ndata_rwops( const char* filename )
 
 
 /**
+ * @brief Removes a common path from a list of files, if present.
+ *
+ *    @param list List of files to filter.
+ *    @param nlist Number of files in the list.
+ *    @param path Path to remove from the filenames.
+ */
+static char **stripPath( const char **list, int nlist, const char *path )
+{
+   int i, len;
+   char **out, *buf;
+
+   out = malloc(sizeof(char*) * nlist);
+   len = strlen( path );
+
+   /* Slash-terminate as needed. */
+   if (strcmp(&path[len],"/")!=0) {
+      len++;
+      buf = malloc((len + 1) * sizeof(char));
+      nsnprintf(buf, len+1,  "%s/", path );
+   }
+   else
+      buf = strdup(path);
+
+   for (i=0; i<nlist; i++) {
+      if (strncmp(list[i],buf,len)==0)
+         out[i] = strdup( &list[i][len] );
+      else
+         out[i] = strdup( list[i] );
+   }
+
+   free(buf);
+   return out;
+}
+
+
+/**
  * @brief Filters a file list to match path.
  *
  *    @param list List to filter.
@@ -740,7 +783,7 @@ static char** filterList( const char** list, int nlist,
 static char** ndata_listBackend( const char* path, uint32_t* nfiles, int recursive )
 {
    (void) path;
-   char **files, buf[PATH_MAX], *tmp;
+   char **files, **tfiles, buf[PATH_MAX], *tmp;
    int n;
    char** (*nfile_readFunc) ( int* nfiles, const char* path, ... ) = NULL;
 
@@ -767,9 +810,11 @@ static char** ndata_listBackend( const char* path, uint32_t* nfiles, int recursi
 
       /* Dirname search. */
       if ((ndata_filename == NULL) && (ndata_dirname != NULL) &&
-            (ndata_source <= NDATA_SRC_NDATADEF)) {
+            (ndata_source <= NDATA_SRC_DIRNAME)) {
          nsnprintf( buf, sizeof(buf), "%s/%s", ndata_dirname, path );
-         files = nfile_readFunc( &n, buf );
+         tfiles = nfile_readFunc( &n, buf );
+         files = stripPath( (const char**)tfiles, n, ndata_dirname );
+         free(tfiles);
          if (files != NULL) {
             *nfiles = n;
             return files;
@@ -777,11 +822,13 @@ static char** ndata_listBackend( const char* path, uint32_t* nfiles, int recursi
       }
 
       /* NDATA_DEF. */
-      if (ndata_source <= NDATA_SRC_BINARY) {
+      if (ndata_source <= NDATA_SRC_NDATADEF) {
          tmp = strdup( NDATA_DEF );
          nsnprintf( buf, sizeof(buf), "%s/%s", nfile_dirname(tmp), path );
+         tfiles = nfile_readFunc( &n, buf );
+         files = stripPath( (const char**)tfiles, n, tmp );
          free(tmp);
-         files = nfile_readFunc( &n, buf );
+         free(tfiles);
          if (files != NULL) {
             *nfiles = n;
             return files;
@@ -792,8 +839,10 @@ static char** ndata_listBackend( const char* path, uint32_t* nfiles, int recursi
       if (ndata_source <= NDATA_SRC_BINARY) {
          tmp = strdup( naev_binary() );
          nsnprintf( buf, sizeof(buf), "%s/%s", nfile_dirname(tmp), path );
+         tfiles = nfile_readFunc( &n, buf );
+         files = stripPath( (const char**)tfiles, n, nfile_dirname(tmp) );
          free(tmp);
-         files = nfile_readFunc( &n, buf );
+         free(tfiles);
          if (files != NULL) {
             *nfiles = n;
             return files;

@@ -43,3 +43,4 @@ stdout.txt
 *.mode1v3
 extras/macosx/build/
 extras/.dirstamp
+datapath.lua
